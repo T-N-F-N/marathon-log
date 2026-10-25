@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>42.195 Log</title>
+<meta name="description" content="フルマラソン当日までの練習プランと実績、食事の注意点を管理するアプリ">
+<meta name="theme-color" content="#f3f5fa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121626" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="42.195 Log">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* Layout: one narrow column like a training notebook; race-bib countdown on top, fixed tab bar at the bottom. */
+:root{
+  --bg:#f3f5fa; --surface:#ffffff; --sunken:#e8ecf5; --line:#d5dbe8;
+  --ink:#1b2347; --muted:#5d6788; --accent:#2b57c4; --accent-ink:#ffffff; --accent-soft:#e3eafb;
+  --bib:#ffffff; --bib-num:#1b2347; --bib-band:#2b57c4;
+  --ok:#1f8a5b; --ok-soft:#dff3e9; --warn:#b26a00; --warn-soft:#fbeed7; --miss:#c23b3b; --miss-soft:#f8e1e1;
+  --t-rest:#8a93ad; --t-jog:#3f8fd6; --t-point:#5b3fc4; --t-long:#c2701c; --t-tune:#1f8a8a; --t-race:#c23b3b;
+  --f-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-num:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --r:14px; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121626; --surface:#1b2034; --sunken:#252b43; --line:#323a58;
+  --ink:#e9ecf7; --muted:#9aa3c2; --accent:#7aa0ff; --accent-ink:#0f1430; --accent-soft:#25305a;
+  --bib:#f4f5f9; --bib-num:#1b2347; --bib-band:#2b57c4;
+  --ok:#5cc996; --ok-soft:#173a2c; --warn:#f0a948; --warn-soft:#3d2e14; --miss:#f07b7b; --miss-soft:#422020;
+  --t-rest:#7d86a3; --t-jog:#6fb3f0; --t-point:#a48cff; --t-long:#f0a052; --t-tune:#55c4c4; --t-race:#f07b7b;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#121626; --surface:#1b2034; --sunken:#252b43; --line:#323a58;
+  --ink:#e9ecf7; --muted:#9aa3c2; --accent:#7aa0ff; --accent-ink:#0f1430; --accent-soft:#25305a;
+  --bib:#f4f5f9; --bib-num:#1b2347; --bib-band:#2b57c4;
+  --ok:#5cc996; --ok-soft:#173a2c; --warn:#f0a948; --warn-soft:#3d2e14; --miss:#f07b7b; --miss-soft:#422020;
+  --t-rest:#7d86a3; --t-jog:#6fb3f0; --t-point:#a48cff; --t-long:#f0a052; --t-tune:#55c4c4; --t-race:#f07b7b;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 var(--f-body);
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:640px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px 24px;display:grid;gap:18px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.3}
+h2{font-size:1.15rem}
+h3{font-size:1rem}
+p{margin:0}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.label{font-size:.72rem;letter-spacing:.08em;color:var(--muted);font-weight:700}
+.stack{display:grid;gap:10px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spread{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:12px;min-width:0}
+
+/* top bar */
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.brand{font-family:var(--f-num);font-weight:700;font-size:1.35rem;letter-spacing:.02em}
+.brand span{color:var(--accent)}
+.save-state{font-size:.75rem;color:var(--muted)}
+
+/* race bib */
+.bib{position:relative;background:var(--bib);color:var(--bib-num);border-radius:10px;padding:14px 18px 16px;
+  box-shadow:0 1px 0 rgba(0,0,0,.04),0 8px 24px -12px rgba(27,35,71,.35);overflow:hidden}
+.bib::before,.bib::after{content:"";position:absolute;top:10px;width:10px;height:10px;border-radius:50%;background:var(--bg);box-shadow:inset 0 1px 2px rgba(0,0,0,.25)}
+.bib::before{left:10px}.bib::after{right:10px}
+.bib .pins-b::before,.bib .pins-b::after{content:"";position:absolute;bottom:10px;width:10px;height:10px;border-radius:50%;background:var(--bg);box-shadow:inset 0 1px 2px rgba(0,0,0,.25)}
+.bib .pins-b::before{left:10px}.bib .pins-b::after{right:10px}
+.bib-band{background:var(--bib-band);color:#fff;margin:-14px -18px 10px;padding:6px 30px;font-size:.78rem;font-weight:700;letter-spacing:.06em;display:flex;justify-content:space-between;gap:8px}
+.bib-main{display:flex;align-items:flex-end;justify-content:center;gap:6px}
+.bib-days{font-family:var(--f-num);font-weight:700;font-size:clamp(4.2rem,22vw,6.5rem);line-height:.9;font-variant-numeric:tabular-nums}
+.bib-unit{font-weight:700;padding-bottom:10px}
+.bib-sub{text-align:center;font-size:.85rem;color:#4b5578}
+.bib-goal{display:flex;justify-content:center;gap:18px;margin-top:6px;font-size:.8rem;color:#4b5578;flex-wrap:wrap}
+.bib-goal b{font-family:var(--f-num);font-size:1.1rem;color:var(--bib-num)}
+
+/* chips & status */
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;padding:2px 10px;border-radius:999px;background:var(--sunken);white-space:nowrap}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c,var(--muted))}
+.st{font-size:.74rem;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.st-done{background:var(--ok-soft);color:var(--ok)}
+.st-part{background:var(--warn-soft);color:var(--warn)}
+.st-miss{background:var(--miss-soft);color:var(--miss)}
+.st-todo{background:var(--sunken);color:var(--muted)}
+
+/* buttons */
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer;min-height:42px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--miss)}
+.btn.wide{width:100%}
+.btn:active{transform:translateY(1px)}
+
+/* today card */
+.today-main{display:grid;gap:6px}
+.big-dist{font-family:var(--f-num);font-weight:700;font-size:2.4rem;line-height:1}
+.big-dist small{font-size:1rem;font-weight:600;margin-left:2px}
+
+/* progress */
+.bar{height:10px;border-radius:999px;background:var(--sunken);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent);border-radius:999px}
+
+/* plan list */
+.week{display:grid;gap:6px}
+.week-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:0 2px}
+.day{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;text-align:left;width:100%}
+.day.is-today{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.day.is-past{opacity:.85}
+.day-date{display:grid;justify-items:center;line-height:1.1}
+.day-date .d{font-family:var(--f-num);font-size:1.5rem;font-weight:700}
+.day-date .w{font-size:.72rem;color:var(--muted)}
+.day-date .w.sun{color:var(--miss)}.day-date .w.sat{color:var(--accent)}
+.day-body{min-width:0;display:grid;gap:2px}
+.day-title{font-weight:700;overflow-wrap:anywhere}
+.day-detail{font-size:.82rem;color:var(--muted);overflow-wrap:anywhere}
+.day-side{display:grid;justify-items:end;gap:4px}
+.day-km{font-family:var(--f-num);font-weight:600;font-size:1.1rem}
+
+/* tabs */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.tabs-in{max-width:640px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
+.tab{appearance:none;background:none;border:0;padding:8px 2px 10px;display:grid;justify-items:center;gap:2px;font-size:.7rem;font-weight:700;color:var(--muted);cursor:pointer}
+.tab svg{width:24px;height:24px}
+.tab[aria-selected="true"]{color:var(--accent)}
+
+/* sheet */
+.sheet-bg{position:fixed;inset:0;background:rgba(10,14,30,.45);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--bg);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:grid;gap:14px}
+.sheet-grip{width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--sunken);border-radius:10px;padding:3px;gap:3px}
+.seg button{border:0;background:transparent;border-radius:8px;padding:7px 4px;font-weight:700;font-size:.85rem;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+
+/* forms */
+.field{display:grid;gap:4px;min-width:0}
+.field>span{font-size:.78rem;font-weight:700;color:var(--muted)}
+.inp{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 11px;min-height:42px;font-size:16px}
+textarea.inp{min-height:72px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:380px){.grid3{grid-template-columns:1fr 1fr}}
+
+/* food */
+.phase{border-left:4px solid var(--pc,var(--accent));padding-left:12px;display:grid;gap:8px}
+.phase.now{background:var(--accent-soft);border-radius:0 12px 12px 0;padding:12px}
+.tip-list{margin:0;padding-left:1.2em;display:grid;gap:4px}
+.calc{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.calc div{background:var(--sunken);border-radius:10px;padding:10px;display:grid;gap:2px}
+.calc b{font-family:var(--f-num);font-size:1.4rem;line-height:1.1}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--sunken);border-radius:10px;padding:10px;display:grid;gap:0}
+.stat b{font-family:var(--f-num);font-size:1.6rem;line-height:1.1}
+.chart{width:100%;height:auto;display:block}
+.legend{display:flex;gap:14px;font-size:.78rem;color:var(--muted);flex-wrap:wrap}
+.legend i{display:inline-block;width:12px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+/* 実践モード：走りながら見る画面。屋外で読みやすく電池にやさしい暗い画面に固定 */
+.run{
+  --rb:#0c0f1d; --rs:#171b30; --rl:#2a3150; --ri:#f3f5fb; --rm:#a3abc8; --ra:#7aa0ff; --rg:#5cd69b; --rr:#ff8a7a;
+  position:fixed;inset:0;z-index:30;background:var(--rb);color:var(--ri);overflow:auto;color-scheme:dark;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.rm-in{max-width:640px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 28px;display:grid;gap:12px}
+.rm-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rm-gps{font-size:.78rem;color:var(--rm);text-align:center;min-width:0;overflow-wrap:anywhere}
+.rm-main{display:grid;justify-items:center;gap:0;padding-block:4px}
+.rm-dist{font-family:var(--f-num);font-weight:700;font-size:clamp(4.5rem,26vw,7.5rem);line-height:.95;font-variant-numeric:tabular-nums}
+.rm-dist small{font-size:1.4rem;font-weight:600;color:var(--rm);margin-left:4px}
+.rm-time{font-size:2rem;font-weight:600;color:var(--rm)}
+.rm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.rm-grid.two{grid-template-columns:1fr 1fr}
+.rm-grid>div{background:var(--rs);border-radius:12px;padding:8px 10px;display:grid}
+.rm-grid span{font-size:.72rem;color:var(--rm);font-weight:700}
+.rm-grid b{font-family:var(--f-num);font-size:1.7rem;line-height:1.15;font-variant-numeric:tabular-nums}
+.run .good{color:var(--rg)} .run .bad{color:var(--rr)}
+.rm-card{background:var(--rs);border:1px solid var(--rl);border-radius:14px;padding:12px;display:grid;gap:8px}
+.rm-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.rm-row span{color:var(--rm);font-size:.85rem}
+.rm-row b{font-family:var(--f-num);font-size:1.3rem;font-variant-numeric:tabular-nums}
+.rm-row em{font-style:normal;margin-left:6px}
+.rm-bar{height:8px;border-radius:99px;background:var(--rl);overflow:hidden}
+.rm-bar i{display:block;height:100%;background:var(--ra)}
+.rm-said{font-size:.85rem;color:var(--rm);min-height:1.4em;margin:0}
+.rm-actions{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:10px}
+.rm-btn{appearance:none;border:1px solid var(--rl);background:var(--rs);color:var(--ri);border-radius:14px;min-height:52px;padding:10px 14px;font-weight:700;font-size:1rem;cursor:pointer}
+.rm-btn.ghost{min-height:42px;font-size:.88rem;background:transparent}
+.rm-btn.go{background:var(--rg);border-color:var(--rg);color:#06140d;min-height:64px;font-size:1.25rem}
+.rm-btn.stop{background:transparent;border-color:var(--rr);color:var(--rr)}
+.rm-btn:disabled{opacity:.4}
+.rm-map{height:38vh;min-height:220px;border-radius:14px;overflow:hidden;background:var(--rs);display:grid;place-items:center}
+.rm-laps{overflow-x:auto}
+.rm-laps table{width:100%;border-collapse:collapse;font-family:var(--f-num);font-size:1.05rem;font-variant-numeric:tabular-nums}
+.rm-laps th{font-family:var(--f-body);font-size:.72rem;color:var(--rm);text-align:right;padding:4px 6px;border-bottom:1px solid var(--rl)}
+.rm-laps td{text-align:right;padding:5px 6px;border-bottom:1px solid var(--rl)}
+.rm-laps th:first-child,.rm-laps td:first-child{text-align:left}
+.rm-help ul{margin:0;padding-left:1.2em;display:grid;gap:4px;font-size:.85rem;color:var(--rm)}
+.run .inp{background:var(--rb);border-color:var(--rl);color:var(--ri)}
+.run .field>span{color:var(--rm)}
+.rs-row{display:grid;grid-template-columns:5em auto 1fr auto auto;gap:6px;align-items:center}
+.rs-row.gate{grid-template-columns:1fr 4.5em 6.5em auto}
+@media (max-width:380px){.rs-row.gate{grid-template-columns:1fr 4em auto}.rs-row.gate input[type=time]{grid-column:1 / 3}}
+.run-entry{border-color:var(--accent)}
+.lap-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.85rem}
+.lap-table td,.lap-table th{padding:3px 6px;border-bottom:1px solid var(--line);text-align:right}
+.lap-table th{color:var(--muted);font-size:.72rem}
+.lap-table td:first-child,.lap-table th:first-child{text-align:left}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:.85rem;font-weight:700;z-index:60}
+.note{font-size:.8rem;color:var(--muted);background:var(--sunken);border-radius:10px;padding:10px 12px}
+.empty{text-align:center;padding:24px 12px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .22s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<nav class="tabs" aria-label="メニュー">
+  <div class="tabs-in" role="tablist">
+    <button class="tab" role="tab" data-tab="today"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>今日</button>
+    <button class="tab" role="tab" data-tab="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>プラン</button>
+    <button class="tab" role="tab" data-tab="log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>記録</button>
+    <button class="tab" role="tab" data-tab="food"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v8a2 2 0 0 0 2 2v8M5 3v5M9 3v5M17 21V3c-2 1-3 4-3 8h3"/></svg>食事</button>
+    <button class="tab" role="tab" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>設定</button>
+  </div>
+</nav>
+
+<div id="runMode" class="run" hidden></div>
+
+<script>
+"use strict";
+const KEY = "marathon-log-v1";
+const WD = ["日","月","火","水","木","金","土"];
+const TYPES = {
+  rest:  {label:"休養",       c:"--t-rest"},
+  jog:   {label:"ジョグ",     c:"--t-jog"},
+  point: {label:"ポイント練", c:"--t-point"},
+  long:  {label:"ロング走",   c:"--t-long"},
+  tune:  {label:"刺激入れ",   c:"--t-tune"},
+  race:  {label:"レース",     c:"--t-race"},
+  other: {label:"その他",     c:"--t-rest"}
+};
+
+// Default 3-week taper. `o` = days before race day (negative), so the plan follows any race date.
+const TEMPLATE = [
+  {o:-20,t:"rest", km:0,  title:"完全休養",        detail:"ストレッチ・睡眠をしっかり"},
+  {o:-19,t:"jog",  km:8,  title:"ジョグ 8km",      detail:"会話できるペース（目標ペース+60〜90秒/km）"},
+  {o:-18,t:"point",km:10, title:"ペース走 10km",   detail:"W-up 2km → レースペース 4km×2（間 1km ジョグ）"},
+  {o:-17,t:"jog",  km:6,  title:"ジョグ 6km",      detail:"リラックスして"},
+  {o:-16,t:"rest", km:0,  title:"休養",            detail:"翌日のロング走に備える"},
+  {o:-15,t:"long", km:22, title:"ロング走 22km",   detail:"最後の長い距離。目標ペース+30秒/km。補給の練習（ジェルを1〜2個）も兼ねる"},
+  {o:-14,t:"jog",  km:6,  title:"リカバリー 6km",  detail:"ごくゆっくり。脚の張りを確認"},
+  {o:-13,t:"rest", km:0,  title:"休養",            detail:""},
+  {o:-12,t:"jog",  km:8,  title:"ジョグ 8km + 流し", detail:"最後に100m×4本の流し"},
+  {o:-11,t:"point",km:8,  title:"レースペース走 8km", detail:"W-up 2km → レースペース 3km×2"},
+  {o:-10,t:"jog",  km:6,  title:"ジョグ 6km",      detail:""},
+  {o:-9, t:"rest", km:0,  title:"休養",            detail:""},
+  {o:-8, t:"long", km:15, title:"中距離走 15km",   detail:"10kmをゆっくり → 最後の5kmをレースペース。シューズ・ウェアは本番と同じもので"},
+  {o:-7, t:"jog",  km:6,  title:"ジョグ 6km",      detail:"1週間前。ここからは疲労を抜く期間"},
+  {o:-6, t:"rest", km:0,  title:"休養",            detail:""},
+  {o:-5, t:"jog",  km:6,  title:"ジョグ 6km + 流し", detail:"100m×4本"},
+  {o:-4, t:"tune", km:5,  title:"刺激入れ 5km",    detail:"ジョグの中にレースペース 2km。息が上がりすぎない程度"},
+  {o:-3, t:"rest", km:0,  title:"休養（またはジョグ 3km）", detail:"カーボローディング開始"},
+  {o:-2, t:"jog",  km:4,  title:"ジョグ 4km",      detail:"短く軽く。脚を動かすだけ"},
+  {o:-1, t:"tune", km:3,  title:"刺激 3km + 流し", detail:"ジョグ 2km + レースペース 1km。持ち物を準備して早めに寝る"},
+  {o:0,  t:"race", km:42.195, title:"レース当日",  detail:"前半は目標ペースより抑えめに。5kmごとに給水、ジェルは30〜40分ごと"}
+];
+
+/* ---------- date helpers (local time, YYYY-MM-DD) ---------- */
+const pad = n => String(n).padStart(2,"0");
+const ymd = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const parseYmd = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y,m-1,d); };
+const addDays = (s,n) => { const d = parseYmd(s); d.setDate(d.getDate()+n); return ymd(d); };
+const diffDays = (a,b) => Math.round((parseYmd(a)-parseYmd(b))/864e5);
+const todayStr = () => ymd(new Date());
+const md = s => { const d = parseYmd(s); return (d.getMonth()+1)+"/"+d.getDate(); };
+const wd = s => parseYmd(s).getDay();
+const mondayOf = s => addDays(s, -((wd(s)+6)%7));
+
+/* ---------- time helpers ---------- */
+function parseTime(str){
+  if(!str) return null;
+  const p = String(str).trim().split(":").map(Number);
+  if(p.some(isNaN)) return null;
+  if(p.length===3) return p[0]*3600+p[1]*60+p[2];
+  if(p.length===2) return p[0]*60+p[1];
+  if(p.length===1) return p[0]*60;
+  return null;
+}
+function fmtTime(sec){
+  if(sec==null||!isFinite(sec)) return "—";
+  sec = Math.round(sec);
+  const h = Math.floor(sec/3600), m = Math.floor(sec%3600/60), s = sec%60;
+  return h ? h+":"+pad(m)+":"+pad(s) : m+":"+pad(s);
+}
+const fmtKm = n => (Math.round(n*10)/10).toLocaleString("ja-JP",{maximumFractionDigits:1});
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---------- state & storage ---------- */
+// 端末内（localStorage）に保存し、共有を設定していればスプレッドシートとも同期する。
+// 同期は「日付ごとの予定・記録」「設定」などの単位で、あとから変更された方を残す（S.meta に変更時刻）。
+function freshState(){
+  return {v:1, settings:{raceName:"神戸マラソン2026", raceDate:"2026-11-15", goal:"4:00:00", weight:60}, plan:{}, logs:{}, registered:false, meta:{}};
+}
+let S = freshState();
+let storageOk = true;
+let lastUnits = {};
+function normalize(d){
+  return Object.assign(freshState(), d, {settings:Object.assign(freshState().settings, d.settings||{}), plan:d.plan||{}, logs:d.logs||{}, meta:d.meta||{}});
+}
+function units(st){
+  const u = {};
+  Object.keys(st.plan||{}).forEach(k=>u["plan/"+k] = st.plan[k]);
+  Object.keys(st.logs||{}).forEach(k=>u["logs/"+k] = st.logs[k]);
+  if(st.settings!==undefined) u.settings = st.settings;
+  if(st.run!==undefined) u.run = st.run;
+  if(st.registered!==undefined) u.registered = st.registered;
+  return u;
+}
+function unitStrings(st){ const u = units(st), o = {}; Object.keys(u).forEach(k=>o[k] = JSON.stringify(u[k])); return o; }
+function mergeStates(a, b){
+  const ua = units(a), ub = units(b), ma = a.meta||{}, mb = b.meta||{};
+  const keys = new Set([...Object.keys(ua), ...Object.keys(ub), ...Object.keys(ma), ...Object.keys(mb)]);
+  const res = {v:1, settings:a.settings||b.settings, plan:{}, logs:{}, registered:false, meta:{}};
+  keys.forEach(k=>{
+    const ta = ma[k]||0, tb = mb[k]||0;
+    const v = (tb > ta || (tb===ta && !(k in ua))) ? ub[k] : ua[k];
+    res.meta[k] = Math.max(ta, tb);
+    if(v===undefined) return;
+    if(k.startsWith("plan/")) res.plan[k.slice(5)] = v;
+    else if(k.startsWith("logs/")) res.logs[k.slice(5)] = v;
+    else res[k] = v;
+  });
+  return normalize(res);
+}
+function stamp(all){
+  const cur = unitStrings(S), t = Date.now();
+  S.meta = S.meta || {};
+  new Set([...Object.keys(cur), ...Object.keys(lastUnits)]).forEach(k=>{ if(all || cur[k]!==lastUnits[k]) S.meta[k] = t; });
+  lastUnits = cur;
+}
+function persistLocal(){
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); storageOk = true; }catch(e){ storageOk = false; }
+  renderSaveState();
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(raw) S = normalize(JSON.parse(raw));
+  }catch(e){ storageOk = false; }
+  lastUnits = unitStrings(S);
+}
+function save(){ stamp(); persistLocal(); Sync.schedule(); }
+
+/* ---------- スプレッドシートとの同期 ---------- */
+const SYNC_KEY = "marathon-sync-v1";
+const Sync = {
+  cfg:null, state:"off", lastAt:0, timer:null, busy:false, again:false,
+  loadCfg(){
+    try{ this.cfg = JSON.parse(localStorage.getItem(SYNC_KEY)||"null"); }catch(e){ this.cfg = null; }
+    const q = new URLSearchParams(location.search);   // ランナー用リンク ?s=URL&k=合言葉
+    if(q.get("s") && q.get("k") && (!this.cfg || this.cfg.url!==q.get("s") || this.cfg.key!==q.get("k"))){
+      this.cfg = {url:q.get("s"), key:q.get("k"), fresh:true}; this.saveCfg();
+    }
+    this.state = this.cfg ? "idle" : "off";
+  },
+  saveCfg(){ try{ this.cfg ? localStorage.setItem(SYNC_KEY, JSON.stringify(this.cfg)) : localStorage.removeItem(SYNC_KEY); }catch(e){} },
+  link(){ return this.cfg ? location.origin + location.pathname + "?s=" + encodeURIComponent(this.cfg.url) + "&k=" + encodeURIComponent(this.cfg.key) : ""; },
+  async call(body){
+    const r = body
+      ? await fetch(this.cfg.url, {method:"POST", body:JSON.stringify(Object.assign({key:this.cfg.key}, body))})
+      : await fetch(this.cfg.url + (this.cfg.url.includes("?")?"&":"?") + "action=get&key=" + encodeURIComponent(this.cfg.key) + "&t=" + Date.now());
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error==="key" ? "合言葉が違います" : "スプレッドシートでエラーが起きました");
+    return j.state;
+  },
+  adopt(remote){
+    if(!remote) return;
+    const before = JSON.stringify(units(S));
+    S = mergeStates(S, normalize(remote));
+    lastUnits = unitStrings(S);
+    persistLocal();
+    if(JSON.stringify(units(S))!==before && !document.querySelector(".sheet-bg")) render();
+  },
+  schedule(){ if(!this.cfg) return; this.pending = true; this.set("pending"); clearTimeout(this.timer); this.timer = setTimeout(()=>this.run(), 1500); },
+  async run(){
+    if(!this.cfg) return;
+    if(this.busy){ this.again = true; return; }
+    if(!navigator.onLine){ this.set(this.pending ? "pending" : "offline"); return; }
+    this.busy = true;
+    let sending = false;
+    try{
+      if(this.cfg.fresh){   // この端末で初めて接続：先に共有データを取り込み、端末の記録も送る
+        this.adopt(await this.call()); stamp(true); persistLocal();
+        this.cfg.fresh = false; this.saveCfg(); this.pending = true;
+      }
+      sending = this.pending; this.pending = false;
+      this.adopt(sending ? await this.call({state:S}) : await this.call());
+      this.lastAt = Date.now(); this.err = ""; this.set(this.pending ? "pending" : "ok");
+    }catch(e){ if(sending) this.pending = true; this.err = e.message || "通信できませんでした"; this.set("error"); }
+    this.busy = false;
+    if(this.again){ this.again = false; this.run(); }
+  },
+  set(st){ this.state = st; renderSaveState(); }
+};
+function renderSaveState(){
+  const el = document.getElementById("saveState");
+  if(!el) return;
+  if(!storageOk){ el.textContent = "保存できません（プライベートモード？）"; return; }
+  el.textContent = syncLabel();
+  el.dataset.state = Sync.state;
+}
+function syncLabel(){
+  const t = Sync.lastAt ? new Date(Sync.lastAt) : null;
+  return {
+    off:"この端末に自動保存", idle:"同期の準備中…",
+    ok:"共有済み " + (t ? t.getHours()+":"+pad(t.getMinutes()) : ""),
+    pending:"未送信あり（自動で送信します）", offline:"オフライン（電波が戻ったら送信）",
+    error:"同期できません（設定を確認）"
+  }[Sync.state] || "";
+}
+if(navigator.storage && navigator.storage.persist){ navigator.storage.persist().catch(()=>{}); }
+
+function templatePlan(){
+  const out = {};
+  TEMPLATE.forEach(x=>{ out[addDays(S.settings.raceDate, x.o)] = {t:x.t, km:x.km, title:x.title, detail:x.detail}; });
+  return out;
+}
+const activePlan = () => S.registered ? S.plan : templatePlan();
+
+/* ---------- derived ---------- */
+function status(date){
+  const p = activePlan()[date], l = S.logs[date];
+  if(l && l.status) return l.status;
+  if(date < todayStr() && p && p.t!=="rest") return "miss";
+  return null;
+}
+const ST_LABEL = {done:"完了", part:"一部", miss:"未実施", skip:"休み"};
+function stBadge(date){
+  const s = status(date);
+  if(!s) return "";
+  const cls = s==="done"?"st-done":s==="part"?"st-part":s==="miss"?"st-miss":"st-todo";
+  return `<span class="st ${cls}">${ST_LABEL[s]}</span>`;
+}
+function phaseOf(date){
+  const o = diffDays(date, S.settings.raceDate);
+  if(o>0) return "after";
+  if(o===0) return "race";
+  if(o===-1) return "eve";
+  if(o>=-3) return "load";
+  if(o>=-7) return "week";
+  return "base";
+}
+const goalSec = () => parseTime(S.settings.goal);
+const goalPace = () => { const g = goalSec(); return g ? g/42.195 : null; };
+
+/* ---------- nutrition content ---------- */
+function foodPhases(){
+  const w = Number(S.settings.weight)||60;
+  const g = goalSec()||14400, hours = g/3600;
+  return [
+    {id:"base", pc:"--t-jog", when:"〜レース8日前", title:"いつもの食事を整える",
+      tips:[
+        "主食・主菜・副菜をそろえ、毎食しっかり食べる。急な減量は脚の回復を遅らせるので避ける",
+        "ポイント練習・ロング走のあと30分以内に、糖質＋たんぱく質（おにぎり＋牛乳、バナナ＋ヨーグルトなど）",
+        "鉄分を意識：赤身肉・レバー・あさり・小松菜。ビタミンC（果物）と一緒にとると吸収が上がる",
+        "水分は練習前後にこまめに。尿の色が濃ければ不足のサイン",
+        "ロング走では本番で使うジェル・ドリンクを試す。お腹に合うかを確認する"
+      ]},
+    {id:"week", pc:"--t-tune", when:"7〜4日前", title:"疲労を抜き、体調を崩さない",
+      tips:[
+        "練習量が減るので、食べる量は「いつも通り〜少し控えめ」でOK。体重が1kg程度増えるのは問題なし",
+        "手洗い・うがい・睡眠で風邪予防。人混みではマスクも",
+        "生もの（刺身・生がき・加熱不十分な肉）は食中毒のリスクがあるので控える",
+        "アルコールはできるだけ控える。飲むなら少量で"
+      ]},
+    {id:"load", pc:"--t-long", when:"3〜2日前", title:"カーボローディング",
+      tips:[
+        `炭水化物を体重1kgあたり7〜10g/日。あなたの場合 <b>${Math.round(w*7)}〜${Math.round(w*10)}g/日</b>（ごはん茶碗1杯 約55g）`,
+        "ごはん・うどん・パン・もち・カステラ・バナナ・100%ジュースなどで「主食を増やし、おかずの脂っこさを減らす」",
+        "揚げ物・脂の多い肉・クリーム系は消化に時間がかかるので控えめに",
+        "水分もいつもより多めに（糖質と一緒に体に水分がたまる）",
+        "食べ慣れたものだけを食べる。新しい食品・サプリはこの時期に試さない"
+      ]},
+    {id:"eve", pc:"--t-point", when:"前日", title:"消化の良い糖質中心",
+      tips:[
+        "食物繊維の多いもの（ごぼう・きのこ・海藻・豆・玄米・生野菜の大盛り）は控える",
+        "夕食は早めに、腹八分目。うどん・ごはん・餅・白身魚・卵など",
+        "辛いもの・炭酸・乳製品でお腹がゆるくなりやすい人は避ける",
+        "アルコールは飲まない。寝る前までにこまめに水分補給",
+        "持ち物（ゼッケン・シューズ・ジェル・ワセリン・テーピング）を前夜のうちに準備"
+      ]},
+    {id:"race", pc:"--t-race", when:"当日", title:"朝食と走りながらの補給",
+      tips:[
+        `朝食はスタート3〜4時間前に。炭水化物を体重1kgあたり2〜3g。あなたの場合 <b>${Math.round(w*2)}〜${Math.round(w*3)}g</b>（おにぎり2〜3個＋バナナ、もちなど）`,
+        "スタート30〜60分前にジェル1個か、バナナ半分。水は200〜300ml程度",
+        `走行中は1時間あたり炭水化物30〜60g。目標 ${fmtTime(g)} なら合計 <b>約${Math.round(hours*45)}g</b>、ジェル（約25g）で <b>${Math.max(3,Math.round(hours*45/25))}個前後</b> を30〜40分ごと`,
+        "給水は喉が渇く前に、各給水所で少しずつ。一度に大量に飲まない（水の飲み過ぎは低ナトリウム血症の原因）",
+        "気温が高い日はスポーツドリンクや塩タブレットで塩分も",
+        "朝のコーヒーは普段から飲んでいる人だけ。トイレが近くなる人は量を控える"
+      ]},
+    {id:"after", pc:"--t-rest", when:"レース後", title:"回復",
+      tips:[
+        "ゴール後30分以内に糖質＋たんぱく質（スポーツドリンク、おにぎり、プロテインなど）",
+        "その日の夜はしっかり食べて早めに寝る。お祝いのお酒は水分補給をしてから少量で",
+        "1週間ほどは軽いジョグか休養。筋肉痛や痛みが残る場合は無理しない"
+      ]}
+  ];
+}
+const PHASE_NAME = {base:"通常期", week:"レース週前半", load:"カーボローディング", eve:"レース前日", race:"レース当日", after:"レース後"};
+
+/* ---------- views ---------- */
+let tab = "today";
+const app = document.getElementById("app");
+
+function header(){
+  const st = S.settings, left = diffDays(st.raceDate, todayStr());
+  const gp = goalPace();
+  let big, sub;
+  if(left>0){ big = left; sub = "レースまであと"; }
+  else if(left===0){ big = "0"; sub = "今日がレース当日です"; }
+  else { big = -left; sub = "レースから"; }
+  return `
+  <div class="top"><div class="brand">42.<span>195</span> Log</div><div class="save-state" id="saveState"></div></div>
+  <section class="bib" aria-label="カウントダウン">
+    <div class="bib-band"><span>${esc(st.raceName)}</span><span class="num">${esc(st.raceDate.replace(/-/g,"."))}（${WD[wd(st.raceDate)]}）</span></div>
+    <div class="bib-sub">${sub}</div>
+    <div class="bib-main"><span class="bib-days">${big}</span><span class="bib-unit">${left>=0?"日":"日経過"}</span></div>
+    <div class="bib-goal"><span>目標 <b>${esc(st.goal||"—")}</b></span><span>ペース <b>${gp?fmtTime(gp):"—"}</b>/km</span></div>
+    <span class="pins-b" aria-hidden="true"></span>
+  </section>`;
+}
+
+function dayRow(date){
+  const p = activePlan()[date] || {t:"other",km:0,title:"予定なし",detail:""};
+  const l = S.logs[date];
+  const ty = TYPES[p.t]||TYPES.other, w = wd(date);
+  const km = l && l.km!=null && l.km!=="" ? `<span class="day-km">${fmtKm(l.km)}<small class="muted"> / ${fmtKm(p.km)}km</small></span>`
+           : p.km ? `<span class="day-km">${fmtKm(p.km)}<small class="muted">km</small></span>` : "";
+  const cls = date===todayStr()?" is-today":date<todayStr()?" is-past":"";
+  return `<button class="day${cls}" data-day="${date}">
+    <span class="day-date"><span class="d">${parseYmd(date).getDate()}</span><span class="w ${w===0?"sun":w===6?"sat":""}">${(parseYmd(date).getMonth()+1)}月・${WD[w]}</span></span>
+    <span class="day-body"><span class="row" style="gap:6px"><span class="chip" style="--c:var(${ty.c})">${ty.label}</span></span>
+      <span class="day-title">${esc(p.title)}</span>${p.detail?`<span class="day-detail">${esc(p.detail)}</span>`:""}</span>
+    <span class="day-side">${km}${stBadge(date)}</span>
+  </button>`;
+}
+
+function planDates(){
+  const set = new Set([...Object.keys(activePlan()), ...Object.keys(S.logs)]);
+  return [...set].sort();
+}
+function weekGroups(){
+  const g = {};
+  planDates().forEach(d=>{ const m = mondayOf(d); (g[m]=g[m]||[]).push(d); });
+  return Object.keys(g).sort().map(m=>({mon:m, days:g[m]}));
+}
+function weekTotals(days){
+  const plan = activePlan(); let p=0,a=0;
+  days.forEach(d=>{ p += Number(plan[d]?.km)||0; a += Number(S.logs[d]?.km)||0; });
+  return {p,a};
+}
+
+function viewToday(){
+  const t = todayStr(), plan = activePlan(), p = plan[t], l = S.logs[t];
+  const ph = phaseOf(t), fp = foodPhases().find(x=>x.id===(ph==="base"?"base":ph));
+  const wk = weekGroups().find(w=>w.mon===mondayOf(t));
+  const tot = wk ? weekTotals(wk.days) : {p:0,a:0};
+  const next = planDates().filter(d=>d>t && plan[d] && plan[d].t!=="rest").slice(0,1)[0];
+  const ty = p ? (TYPES[p.t]||TYPES.other) : null;
+  return `
+  ${!S.registered ? `<section class="panel" style="border-color:var(--accent)">
+    <h2>まずは練習プランを登録しましょう</h2>
+    <p class="small muted">レース日から逆算した3週間の調整プラン（おすすめ）が入っています。内容を確認し、必要に応じて「プラン」タブで日ごとに編集できます。</p>
+    <div class="row"><button class="btn primary" data-act="register">このプランで登録する</button><button class="btn ghost" data-go="plan">内容を見る</button></div>
+  </section>`:""}
+  ${typeof runCard==="function" ? runCard() : ""}
+  <section class="panel">
+    <div class="spread"><span class="label">今日 ${md(t)}（${WD[wd(t)]}）</span>${stBadge(t)}</div>
+    ${p ? `<div class="today-main">
+        <span><span class="chip" style="--c:var(${ty.c})">${ty.label}</span></span>
+        <h2>${esc(p.title)}</h2>
+        ${p.km?`<div class="big-dist">${fmtKm(p.km)}<small>km</small></div>`:""}
+        ${p.detail?`<p class="small muted">${esc(p.detail)}</p>`:""}
+      </div>`
+      : `<p class="muted">今日の予定は登録されていません。</p>`}
+    ${l ? `<div class="note">実績：${l.km!=null&&l.km!==""?fmtKm(l.km)+"km":"—"}　${l.time?esc(l.time):""}${l.km&&parseTime(l.time)?"（"+fmtTime(parseTime(l.time)/l.km)+"/km）":""}${l.rpe?"　きつさ "+esc(l.rpe)+"/10":""}</div>`:""}
+    <button class="btn primary wide" data-day="${t}">${l?"今日の記録を編集":"今日の練習を記録する"}</button>
+  </section>
+
+  <section class="panel">
+    <div class="spread"><span class="label">今週の走行距離</span><span class="num" style="font-size:1.15rem;font-weight:600">${fmtKm(tot.a)} / ${fmtKm(tot.p)} km</span></div>
+    <div class="bar"><i style="width:${tot.p?Math.min(100,tot.a/tot.p*100):0}%"></i></div>
+    ${next?`<p class="small muted">次の練習：${md(next)}（${WD[wd(next)]}） ${esc(plan[next].title)}</p>`:""}
+  </section>
+
+  ${fp?`<section class="panel">
+    <div class="spread"><span class="label">今日の食事ポイント</span><span class="chip" style="--c:var(${fp.pc})">${PHASE_NAME[ph]}</span></div>
+    <h3>${fp.title}</h3>
+    <ul class="tip-list small">${fp.tips.slice(0,3).map(x=>`<li>${x}</li>`).join("")}</ul>
+    <button class="btn ghost" data-go="food">食事の注意点をすべて見る</button>
+  </section>`:""}`;
+}
+
+function viewPlan(){
+  const groups = weekGroups();
+  return `
+  <div class="spread"><h2>練習プラン</h2><button class="btn" data-act="addday">＋ 日を追加</button></div>
+  ${!S.registered?`<div class="note">これはおすすめプランです（まだ登録されていません）。「このプランで登録する」を押すか、日をタップして編集すると登録されます。<div style="margin-top:8px"><button class="btn primary" data-act="register">このプランで登録する</button></div></div>`
+    :`<p class="small muted">日をタップすると予定の変更と実績の記録ができます。</p>`}
+  ${groups.map(g=>{ const t = weekTotals(g.days); return `
+    <section class="week">
+      <div class="week-head"><h3>${md(g.mon)}〜${md(addDays(g.mon,6))}の週</h3><span class="small muted num">予定 ${fmtKm(t.p)}km・実績 ${fmtKm(t.a)}km</span></div>
+      ${g.days.map(dayRow).join("")}
+    </section>`;}).join("")}`;
+}
+
+function viewLog(){
+  const t = todayStr(), plan = activePlan();
+  const dates = planDates();
+  const logged = dates.filter(d=>S.logs[d]);
+  const pastRun = dates.filter(d=>d<=t && plan[d] && plan[d].t!=="rest");
+  const done = pastRun.filter(d=>["done","part"].includes(S.logs[d]?.status)).length;
+  const totalKm = logged.reduce((s,d)=>s+(Number(S.logs[d].km)||0),0);
+  const groups = weekGroups();
+  const maxV = Math.max(1,...groups.map(g=>{const x=weekTotals(g.days);return Math.max(x.p,x.a);}));
+  const W=320,H=150,pl=30,pb=26,pt=10, bw=(W-pl-10)/Math.max(1,groups.length);
+  const y = v => pt+(H-pt-pb)*(1-v/maxV);
+  const step = maxV>60?20:maxV>30?10:5;
+  let ticks=""; for(let v=0; v<=maxV; v+=step){ ticks+=`<line x1="${pl}" x2="${W-6}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${pl-5}" y="${y(v)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${v}</text>`; }
+  const bars = groups.map((g,i)=>{ const x=weekTotals(g.days), cx=pl+bw*i+bw/2, w=Math.min(34,bw*.6);
+    return `<rect x="${cx-w/2}" y="${y(x.p)}" width="${w}" height="${y(0)-y(x.p)}" rx="3" fill="none" stroke="var(--muted)" stroke-dasharray="3 3" stroke-width="1.2"/>
+      <rect x="${cx-w/2+4}" y="${y(x.a)}" width="${Math.max(0,w-8)}" height="${y(0)-y(x.a)}" rx="2" fill="var(--accent)"/>
+      <text x="${cx}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--muted)">${md(g.mon)}週</text>`; }).join("");
+  return `
+  <h2>記録</h2>
+  <div class="stats">
+    <div class="stat"><span class="label">累計距離</span><b>${fmtKm(totalKm)}<small class="small"> km</small></b></div>
+    <div class="stat"><span class="label">実施率</span><b>${pastRun.length?Math.round(done/pastRun.length*100):"—"}<small class="small">${pastRun.length?" %":""}</small></b></div>
+    <div class="stat"><span class="label">記録日数</span><b>${logged.length}<small class="small"> 日</small></b></div>
+  </div>
+  <section class="panel">
+    <span class="label">週ごとの距離（km）</span>
+    <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="週ごとの予定距離と実績距離">${ticks}${bars}</svg>
+    <div class="legend"><span><i style="border:1.2px dashed var(--muted)"></i>予定</span><span><i style="background:var(--accent)"></i>実績</span></div>
+  </section>
+  <section class="stack">
+    <h3>練習日誌</h3>
+    ${logged.length ? logged.slice().reverse().map(d=>{ const l=S.logs[d], p=plan[d]; const sec=parseTime(l.time);
+      return `<button class="panel" data-day="${d}" style="text-align:left;cursor:pointer;gap:6px">
+        <div class="spread"><b>${md(d)}（${WD[wd(d)]}） ${esc(p?.title||"")}</b>${stBadge(d)}</div>
+        <div class="row small num" style="gap:14px"><span>${l.km!=null&&l.km!==""?fmtKm(l.km)+" km":"— km"}</span><span>${l.time?esc(l.time):"—"}</span><span>${l.km&&sec?fmtTime(sec/l.km)+"/km":""}</span>${l.rpe?`<span>きつさ ${esc(l.rpe)}/10</span>`:""}${l.cond?`<span>体調 ${esc(l.cond)}</span>`:""}${l.gps?`<span class="chip" style="--c:var(--accent)">GPS</span>`:""}</div>
+        ${l.meal?`<p class="small muted">食事：${esc(l.meal)}</p>`:""}
+        ${l.memo?`<p class="small muted">メモ：${esc(l.memo)}</p>`:""}
+      </button>`;}).join("")
+      : `<div class="empty">まだ記録がありません。<br>「今日」タブから練習を記録しましょう。</div>`}
+  </section>`;
+}
+
+function viewFood(){
+  const ph = phaseOf(todayStr()), raceD = S.settings.raceDate;
+  const ranges = {base:`〜${md(addDays(raceD,-8))}`, week:`${md(addDays(raceD,-7))}〜${md(addDays(raceD,-4))}`, load:`${md(addDays(raceD,-3))}〜${md(addDays(raceD,-2))}`, eve:md(addDays(raceD,-1)), race:md(raceD), after:`${md(addDays(raceD,1))}〜`};
+  const w = Number(S.settings.weight)||60;
+  return `
+  <h2>食事の注意点</h2>
+  <section class="panel">
+    <span class="label">体重 ${esc(w)}kg での目安（設定で変更できます）</span>
+    <div class="calc">
+      <div><span class="small muted">カーボローディング</span><b>${Math.round(w*7)}〜${Math.round(w*10)}g</b><span class="small muted">炭水化物/日</span></div>
+      <div><span class="small muted">当日の朝食</span><b>${Math.round(w*2)}〜${Math.round(w*3)}g</b><span class="small muted">炭水化物</span></div>
+      <div><span class="small muted">レース中</span><b>30〜60g</b><span class="small muted">炭水化物/時</span></div>
+    </div>
+    <p class="small muted">ごはん茶碗1杯(150g)≒炭水化物55g、食パン6枚切1枚≒27g、バナナ1本≒22g、もち1個≒25g、うどん1玉≒50g</p>
+  </section>
+  ${foodPhases().map(f=>`
+    <section class="phase${(ph===f.id)?" now":""}" style="--pc:var(${f.pc})">
+      <div class="spread"><span class="label">${f.when}（${ranges[f.id]}）</span>${ph===f.id?`<span class="st st-done">いまここ</span>`:""}</div>
+      <h3>${f.title}</h3>
+      <ul class="tip-list small">${f.tips.map(x=>`<li>${x}</li>`).join("")}</ul>
+    </section>`).join("")}
+  <p class="note">一般的な目安です。持病のある方、食事制限のある方、体調に不安がある方は医師・管理栄養士に相談してください。</p>`;
+}
+
+function viewSetup(){
+  const s = S.settings;
+  return `
+  <h2>設定</h2>
+  <form class="panel" id="setForm">
+    <label class="field"><span>大会名</span><input class="inp" id="setName" value="${esc(s.raceName)}"></label>
+    <div class="grid2">
+      <label class="field"><span>レース日</span><input class="inp" type="date" id="setDate" value="${esc(s.raceDate)}"></label>
+      <label class="field"><span>目標タイム（時:分:秒）</span><input class="inp num" id="setGoal" inputmode="numeric" placeholder="4:00:00" value="${esc(s.goal)}"></label>
+    </div>
+    <label class="field"><span>体重（kg）・食事量の計算に使います</span><input class="inp" type="number" inputmode="decimal" step="0.1" id="setWeight" value="${esc(s.weight)}"></label>
+    <button class="btn primary" type="submit">保存</button>
+    ${S.registered?`<p class="small muted">登録済みのプランの日付はレース日を変えても動きません。作り直す場合は下の「プランを作り直す」を使ってください。</p>`:""}
+  </form>
+
+  <section class="panel" id="shareSec">
+    <h3>2人で共有（Googleスプレッドシート）</h3>
+    ${Sync.cfg ? `
+      <div class="spread"><span class="small">状態：<b>${esc(syncLabel())}</b></span><button class="btn" data-act="syncnow">今すぐ同期</button></div>
+      ${Sync.state==="error" && Sync.err ? `<p class="note">${esc(Sync.err)}</p>` : ""}
+      <label class="field"><span>ランナーに送るリンク（このリンクから開くと共有された状態で始まります）</span><input class="inp small" id="shareLink" readonly value="${esc(Sync.link())}"></label>
+      <div class="row"><button class="btn primary" data-act="copylink">リンクをコピー</button><button class="btn ghost danger" data-act="unshare">この端末の共有を解除</button></div>
+      <p class="small muted">リンクには合言葉が入っています。ランナー以外には送らないでください。</p>`
+    : `
+      <p class="small muted">管理者がスプレッドシートを用意すると、ランナーと管理者が同じ予定・記録を見て編集できます。手順は「使い方と公開手順」の「2人で共有する」を見てください。</p>
+      <label class="field"><span>ウェブアプリのURL</span><input class="inp" id="shUrl" inputmode="url" placeholder="https://script.google.com/macros/s/…/exec"></label>
+      <label class="field"><span>合言葉</span><input class="inp" id="shKey" autocomplete="off"></label>
+      <button class="btn primary" data-act="share">接続する</button>`}
+  </section>
+
+  <section class="panel">
+    <h3>バックアップ</h3>
+    <p class="small muted">${Sync.cfg ? "データはこのスマホとスプレッドシートに保存されています。念のため、ときどきバックアップもしておくと安心です。" : "データはこのスマホの中だけに保存されます。機種変更やブラウザのデータ削除に備えて、ときどきバックアップしてください。"}</p>
+    <div class="row"><button class="btn" data-act="export">バックアップを保存</button><button class="btn" data-act="copy">テキストでコピー</button></div>
+    <label class="field"><span>復元（ファイルを選ぶ）</span><input class="inp" type="file" id="importFile" accept="application/json,.json,text/plain"></label>
+    <label class="field"><span>復元（コピーしたテキストを貼り付け）</span><textarea class="inp" id="importText" placeholder='{"v":1,...}'></textarea></label>
+    <button class="btn" data-act="importText">貼り付けた内容で復元</button>
+  </section>
+
+  <section class="panel">
+    <h3>ホーム画面に追加</h3>
+    <p class="small"><b>iPhone（Safari）</b>：下の共有ボタン <span aria-hidden="true">⬆︎</span> →「ホーム画面に追加」</p>
+    <p class="small"><b>Android（Chrome）</b>：右上の「⋮」→「ホーム画面に追加」または「アプリをインストール」</p>
+    <p class="small muted">ホーム画面から開くとアプリのように全画面で使え、電波がなくても動きます。iPhoneはホーム画面から使うと保存データが消えにくくなります。</p>
+  </section>
+
+  <section class="panel">
+    <h3>リセット</h3>
+    <div class="row"><button class="btn" data-act="rebuild">プランを作り直す</button><button class="btn danger" data-act="wipe">すべてのデータを消去</button></div>
+    <div id="confirmBox"></div>
+  </section>`;
+}
+
+function render(){
+  document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===tab ? "true":"false"));
+  const v = {today:viewToday, plan:viewPlan, log:viewLog, food:viewFood, setup:viewSetup}[tab]();
+  app.innerHTML = header() + v;
+  renderSaveState();
+}
+
+/* ---------- day sheet ---------- */
+function openDay(date, isNew){
+  const plan = activePlan();
+  const p = Object.assign({t:"jog",km:"",title:"",detail:""}, plan[date]||{});
+  const l = Object.assign({status:"",km:"",time:"",rpe:"",cond:"",sleep:"",weight:"",meal:"",memo:""}, S.logs[date]||{});
+  const isFuture = date > todayStr();
+  const bg = document.createElement("div");
+  bg.className = "sheet-bg";
+  bg.innerHTML = `<form class="sheet" id="dayForm" role="dialog" aria-label="${md(date)}の予定と記録">
+    <div class="sheet-grip"></div>
+    <div class="spread">
+      ${isNew?`<label class="field" style="flex:1"><span>日付</span><input class="inp" type="date" id="dDate" value="${date}"></label>`
+             :`<h2>${md(date)}（${WD[wd(date)]}）</h2>`}
+      <button type="button" class="btn ghost" data-close>閉じる</button>
+    </div>
+    <div class="seg" role="group" aria-label="表示切替">
+      <button type="button" data-pane="rec" aria-pressed="${isFuture&&!S.logs[date]?"false":"true"}">実績を記録</button>
+      <button type="button" data-pane="pl" aria-pressed="${isFuture&&!S.logs[date]?"true":"false"}">予定を編集</button>
+    </div>
+
+    <div class="stack" data-panel="pl" ${isFuture&&!S.logs[date]?"":"hidden"}>
+      <div class="grid2">
+        <label class="field"><span>種類</span><select class="inp" id="pType">${Object.entries(TYPES).map(([k,v])=>`<option value="${k}" ${p.t===k?"selected":""}>${v.label}</option>`).join("")}</select></label>
+        <label class="field"><span>予定距離（km）</span><input class="inp" type="number" inputmode="decimal" step="0.1" min="0" id="pKm" value="${esc(p.km)}"></label>
+      </div>
+      <label class="field"><span>メニュー名</span><input class="inp" id="pTitle" value="${esc(p.title)}" placeholder="例：ペース走 10km"></label>
+      <label class="field"><span>内容・ポイント</span><textarea class="inp" id="pDetail" placeholder="ペースや本数など">${esc(p.detail)}</textarea></label>
+      ${!isNew && plan[date]?`<button type="button" class="btn danger" data-act="delplan">この日の予定を削除</button>`:""}
+    </div>
+
+    <div class="stack" data-panel="rec" ${isFuture&&!S.logs[date]?"hidden":""}>
+      ${plan[date]?`<div class="note"><b>予定：</b>${esc(p.title)}${p.km?"（"+fmtKm(p.km)+"km）":""}</div>`:""}
+      <div class="field"><span>結果</span>
+        <div class="seg" id="rStatus">${["done","part","miss","skip"].map(k=>`<button type="button" data-st="${k}" aria-pressed="${l.status===k}">${ST_LABEL[k]}</button>`).join("")}</div>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>距離（km）</span><input class="inp" type="number" inputmode="decimal" step="0.01" min="0" id="rKm" value="${esc(l.km)}"></label>
+        <label class="field"><span>タイム（時:分:秒 / 分:秒）</span><input class="inp num" id="rTime" inputmode="numeric" placeholder="58:30" value="${esc(l.time)}"></label>
+      </div>
+      <p class="small muted" id="rPace"></p>
+      ${l.laps && l.laps.length ? lapTable(l.laps) : ""}
+      <div class="grid3">
+        <label class="field"><span>きつさ(1-10)</span><select class="inp" id="rRpe"><option value="">—</option>${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option ${String(l.rpe)===String(n)?"selected":""}>${n}</option>`).join("")}</select></label>
+        <label class="field"><span>体調</span><select class="inp" id="rCond">${["","良い","普通","疲れ","痛みあり","不調"].map(c=>`<option ${l.cond===c?"selected":""} value="${c}">${c||"—"}</option>`).join("")}</select></label>
+        <label class="field"><span>睡眠(時間)</span><input class="inp" type="number" inputmode="decimal" step="0.5" min="0" id="rSleep" value="${esc(l.sleep)}"></label>
+      </div>
+      <label class="field"><span>体重（kg）</span><input class="inp" type="number" inputmode="decimal" step="0.1" id="rWeight" value="${esc(l.weight)}"></label>
+      <label class="field"><span>食事・補給メモ</span><textarea class="inp" id="rMeal" placeholder="例：朝 おにぎり2個、練習後 プロテイン">${esc(l.meal)}</textarea></label>
+      <label class="field"><span>メモ（脚の状態・気づき）</span><textarea class="inp" id="rMemo">${esc(l.memo)}</textarea></label>
+      ${S.logs[date]?`<button type="button" class="btn danger" data-act="dellog">この日の記録を削除</button>`:""}
+    </div>
+    <button class="btn primary wide" type="submit">保存</button>
+  </form>`;
+  document.body.appendChild(bg);
+  document.body.style.overflow = "hidden";
+  const f = bg.querySelector("form");
+  let st = l.status;
+  const close = () => { bg.remove(); document.body.style.overflow = ""; };
+  const paceUpd = () => { const k = Number(f.querySelector("#rKm").value), s = parseTime(f.querySelector("#rTime").value);
+    f.querySelector("#rPace").textContent = k && s ? "平均ペース "+fmtTime(s/k)+"/km" : ""; };
+  paceUpd();
+  f.querySelector("#rKm").addEventListener("input", paceUpd);
+  f.querySelector("#rTime").addEventListener("input", paceUpd);
+  bg.addEventListener("click", e=>{
+    if(e.target===bg || e.target.closest("[data-close]")) return close();
+    const pn = e.target.closest("[data-pane]");
+    if(pn){ f.querySelectorAll("[data-pane]").forEach(b=>b.setAttribute("aria-pressed", b===pn)); f.querySelectorAll("[data-panel]").forEach(x=>x.hidden = x.dataset.panel!==pn.dataset.pane); }
+    const sb = e.target.closest("[data-st]");
+    if(sb){ st = st===sb.dataset.st ? "" : sb.dataset.st; f.querySelectorAll("[data-st]").forEach(b=>b.setAttribute("aria-pressed", b.dataset.st===st));
+      if(st==="done" && !f.querySelector("#rKm").value && p.km) { f.querySelector("#rKm").value = p.km; paceUpd(); } }
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if(act==="delplan"){ ensureRegistered(); delete S.plan[date]; save(); close(); render(); toast("予定を削除しました"); }
+    if(act==="dellog"){ delete S.logs[date]; save(); close(); render(); toast("記録を削除しました"); }
+  });
+  f.addEventListener("submit", e=>{
+    e.preventDefault();
+    const d = isNew ? (f.querySelector("#dDate").value || date) : date;
+    const np = {t:f.querySelector("#pType").value, km:Number(f.querySelector("#pKm").value)||0, title:f.querySelector("#pTitle").value.trim(), detail:f.querySelector("#pDetail").value.trim()};
+    if(!np.title) np.title = TYPES[np.t].label + (np.km?" "+fmtKm(np.km)+"km":"");
+    const old = plan[d];
+    const planChanged = !old || old.t!==np.t || Number(old.km)!==np.km || old.title!==np.title || (old.detail||"")!==np.detail;
+    if(planChanged || isNew){ ensureRegistered(); S.plan[d] = np; }
+    const nl = {status:st, km:f.querySelector("#rKm").value===""?"":Number(f.querySelector("#rKm").value), time:f.querySelector("#rTime").value.trim(),
+      rpe:f.querySelector("#rRpe").value, cond:f.querySelector("#rCond").value, sleep:f.querySelector("#rSleep").value, weight:f.querySelector("#rWeight").value,
+      meal:f.querySelector("#rMeal").value.trim(), memo:f.querySelector("#rMemo").value.trim()};
+    const gpsPart = S.logs[d] && S.logs[d].laps ? {laps:S.logs[d].laps, route:S.logs[d].route, gps:true} : {};
+    if(Object.values(nl).some(v=>v!=="" && v!=null) || gpsPart.laps) S.logs[d] = Object.assign(nl, gpsPart); else delete S.logs[d];
+    save(); close(); render(); toast("保存しました");
+  });
+}
+function lapTable(laps){
+  return `<details><summary class="small"><b>GPSラップ（${laps.length}本）</b></summary><div style="overflow-x:auto"><table class="lap-table">
+    <thead><tr><th>km</th><th>ラップ</th></tr></thead>
+    <tbody>${laps.map(x=>`<tr><td>${x.km}</td><td>${fmtTime(x.sec)}${x.est?"*":""}</td></tr>`).join("")}</tbody></table></div>
+    ${laps.some(x=>x.est)?`<p class="small muted">* 画面オフ中を含む推定</p>`:""}</details>`;
+}
+function ensureRegistered(){ if(!S.registered){ S.plan = templatePlan(); S.registered = true; } }
+
+/* ---------- misc actions ---------- */
+let toastT;
+function toast(msg){
+  document.querySelectorAll(".toast").forEach(t=>t.remove());
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; t.setAttribute("role","status");
+  document.body.appendChild(t); clearTimeout(toastT); toastT = setTimeout(()=>t.remove(), 2200);
+}
+function exportText(){ return JSON.stringify(S); }
+function importData(txt){
+  try{
+    const d = JSON.parse(txt);
+    if(!d || typeof d!=="object" || !d.settings || !d.logs) throw 0;
+    S = normalize(Object.assign({}, d, {meta:S.meta}));
+    save(); render(); toast("復元しました");
+  }catch(e){ toast("読み込めませんでした。バックアップの内容を確認してください"); }
+}
+function confirmBox(msg, label, fn){
+  const box = document.getElementById("confirmBox");
+  box.innerHTML = `<div class="note" style="display:grid;gap:8px"><span>${msg}</span><div class="row"><button class="btn danger" id="cfYes">${label}</button><button class="btn" id="cfNo">やめる</button></div></div>`;
+  box.querySelector("#cfYes").onclick = fn;
+  box.querySelector("#cfNo").onclick = () => box.innerHTML = "";
+}
+
+document.addEventListener("click", e=>{
+  const tb = e.target.closest(".tab");
+  if(tb){ tab = tb.dataset.tab; history.replaceState(null,"","#"+tab); render(); window.scrollTo(0,0); return; }
+  if(e.target.closest(".sheet-bg")) return;
+  const go = e.target.closest("[data-go]");
+  if(go){ tab = go.dataset.go; history.replaceState(null,"","#"+tab); render(); window.scrollTo(0,0); return; }
+  const day = e.target.closest("[data-day]");
+  if(day){ openDay(day.dataset.day, false); return; }
+  const act = e.target.closest("[data-act]")?.dataset.act;
+  if(!act) return;
+  if(act==="register"){ ensureRegistered(); save(); render(); toast("プランを登録しました"); }
+  if(act==="addday"){ openDay(todayStr(), true); }
+  if(act==="export"){
+    const blob = new Blob([exportText()],{type:"application/json"});
+    const file = new File([blob], `marathon-backup-${todayStr()}.json`, {type:"application/json"});
+    if(navigator.canShare && navigator.canShare({files:[file]})){ navigator.share({files:[file], title:"練習データのバックアップ"}).catch(()=>{}); }
+    else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000); }
+  }
+  if(act==="copy"){
+    const txt = exportText();
+    navigator.clipboard?.writeText(txt).then(()=>toast("コピーしました。メモアプリなどに貼り付けて保管してください"), ()=>{ const ta=document.getElementById("importText"); ta.value=txt; ta.select(); toast("テキストを選択しました。コピーしてください"); })
+      ?? (()=>{ const ta=document.getElementById("importText"); ta.value=txt; ta.select(); })();
+  }
+  if(act==="importText"){ const v = document.getElementById("importText").value.trim(); if(v) importData(v); }
+  if(act==="rebuild") confirmBox("現在の予定を消して、レース日から逆算したおすすめプランに置き換えます（実績の記録は残ります）。", "作り直す", ()=>{ S.registered=false; S.plan={}; ensureRegistered(); save(); render(); toast("プランを作り直しました"); });
+  if(act==="share"){
+    const url = document.getElementById("shUrl").value.trim(), key = document.getElementById("shKey").value.trim();
+    if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(url) || !key){ toast("URL（https://script.google.com/…）と合言葉を入力してください"); return; }
+    Sync.cfg = {url, key, fresh:true}; Sync.saveCfg(); Sync.set("idle");
+    Sync.run().then(()=>{ if(Sync.state==="ok"){ toast("接続しました"); } else { toast(Sync.err || "接続できませんでした"); Sync.cfg = null; Sync.saveCfg(); Sync.set("off"); } render(); });
+  }
+  if(act==="syncnow"){ Sync.run().then(()=>{ toast(Sync.state==="ok" ? "同期しました" : (Sync.err || "同期できませんでした")); render(); }); }
+  if(act==="copylink"){
+    const inp = document.getElementById("shareLink");
+    navigator.clipboard?.writeText(inp.value).then(()=>toast("コピーしました"), ()=>{ inp.select(); toast("選択しました。コピーしてください"); });
+  }
+  if(act==="unshare") confirmBox("この端末だけ共有をやめます。スプレッドシートのデータと、相手の端末はそのまま残ります。", "解除する", ()=>{ Sync.cfg = null; Sync.saveCfg(); Sync.set("off"); render(); toast("共有を解除しました"); });
+  if(act==="wipe") confirmBox(Sync.cfg ? "予定・記録・設定をすべて消去します。共有中なので、相手の端末とスプレッドシートからも消えます。元に戻せません。" : "予定・記録・設定をすべて消去します。元に戻せません。", "消去する", ()=>{ S = freshState(); save(); render(); toast("消去しました"); });
+});
+document.addEventListener("submit", e=>{
+  if(e.target.id!=="setForm") return;
+  e.preventDefault();
+  const s = S.settings;
+  s.raceName = document.getElementById("setName").value.trim() || "フルマラソン";
+  s.raceDate = document.getElementById("setDate").value || s.raceDate;
+  const g = document.getElementById("setGoal").value.trim();
+  s.goal = parseTime(g) ? g : s.goal;
+  s.weight = Number(document.getElementById("setWeight").value) || s.weight;
+  save(); render(); toast("保存しました");
+});
+document.addEventListener("change", e=>{
+  if(e.target.id!=="importFile" || !e.target.files[0]) return;
+  e.target.files[0].text().then(importData);
+});
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") document.querySelector(".sheet-bg [data-close]")?.click(); });
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && !document.querySelector(".sheet-bg")) render(); });
+
+load();
+Sync.loadCfg();
+if(Sync.cfg){
+  Sync.run();
+  setInterval(()=>{ if(!document.hidden) Sync.run(); }, 120000);   // 相手の変更を2分ごとに取り込む
+  addEventListener("online", ()=>Sync.run());
+  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) Sync.run(); });
+}
+const h = location.hash.slice(1);
+if(["today","plan","log","food","setup"].includes(h)) tab = h;
+render();
+if("serviceWorker" in navigator && location.protocol.startsWith("http")){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
+<script src="run.js" defer></script>
+</body>
+</html>
