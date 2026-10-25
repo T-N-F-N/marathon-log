@@ -86,10 +86,10 @@ document.addEventListener("focusout", e=>{ if(e.target.matches && e.target.match
 /* ---------- state ---------- */
 // 端末内（localStorage）に保存し、共有を設定していればスプレッドシートとも同期する。
 // 同期は「日付ごとの予定・記録・コメント」「設定」「アドバイス」などの単位で、あとから変更された方を残す（S.meta に変更時刻）。
-const MAP_KEYS = ["plan","logs","comments"];
+const MAP_KEYS = ["plan","logs","comments","trash"];
 const TOP_KEYS = ["settings","run","registered","advice","checks","admin"];
 function freshState(){
-  return {v:2, settings:{raceName:"神戸マラソン2026", raceDate:"2026-11-15", goal:"4:00:00", weight:60}, plan:{}, logs:{}, comments:{}, registered:false, meta:{}};
+  return {v:2, settings:{raceName:"神戸マラソン2026", raceDate:"2026-11-15", goal:"4:00:00", weight:60}, plan:{}, logs:{}, comments:{}, trash:{}, registered:false, meta:{}};
 }
 let S = freshState();
 let storageOk = true;
@@ -102,7 +102,7 @@ function migrateLog(l){
   return l;
 }
 function normalize(d){
-  const s = Object.assign(freshState(), d, {settings:Object.assign(freshState().settings, d.settings||{}), plan:d.plan||{}, logs:d.logs||{}, comments:d.comments||{}, meta:d.meta||{}});
+  const s = Object.assign(freshState(), d, {settings:Object.assign(freshState().settings, d.settings||{}), plan:d.plan||{}, logs:d.logs||{}, comments:d.comments||{}, trash:d.trash||{}, meta:d.meta||{}});
   Object.values(s.logs).forEach(migrateLog);
   return s;
 }
@@ -116,7 +116,7 @@ function unitStrings(st){ const u = units(st), o = {}; Object.keys(u).forEach(k=
 function mergeStates(a, b){
   const ua = units(a), ub = units(b), ma = a.meta||{}, mb = b.meta||{};
   const keys = new Set([...Object.keys(ua), ...Object.keys(ub), ...Object.keys(ma), ...Object.keys(mb)]);
-  const res = {v:2, settings:a.settings||b.settings, plan:{}, logs:{}, comments:{}, registered:false, meta:{}};
+  const res = {v:2, settings:a.settings||b.settings, plan:{}, logs:{}, comments:{}, trash:{}, registered:false, meta:{}};
   keys.forEach(k=>{
     const ta = ma[k]||0, tb = mb[k]||0;
     const v = (tb > ta || (tb===ta && !(k in ua))) ? ub[k] : ua[k];
@@ -148,6 +148,68 @@ function load(){
   lastUnits = unitStrings(S);
 }
 function save(){ stamp(); persistLocal(); Sync.schedule(); }
+
+/* ---------- ゴミ箱（30日間は元に戻せる。共有中は2人とも見られる） ---------- */
+const TRASH_DAYS = 30;
+const clone = o => o===undefined ? undefined : JSON.parse(JSON.stringify(o));
+function toTrash(kind, date, data, extra){
+  const id = uid();
+  S.trash[id] = Object.assign({kind, date:date||null, data:clone(data), at:Date.now()}, extra||{});
+  return id;
+}
+function snapshotAll(){
+  const o = {};
+  ["settings","plan","logs","comments","advice","checks","registered","run"].forEach(k=>{ if(S[k]!==undefined) o[k] = clone(S[k]); });
+  return o;
+}
+function purgeTrash(){
+  const lim = Date.now() - TRASH_DAYS*864e5; let ch = false;
+  Object.keys(S.trash).forEach(id=>{ if((S.trash[id].at||0) < lim){ delete S.trash[id]; ch = true; } });
+  return ch;
+}
+function trashLabel(t){
+  const d = t.date ? `${md(t.date)}（${WD[wd(t.date)]}）` : "";
+  const r = t.data || {};
+  switch(t.kind){
+    case "plan":    return `${d} の予定「${r.title||""}」`;
+    case "log":     return `${d} の記録（${runsLine(r) || "メモなど"}）`;
+    case "run":     return `${d} の記録 1回分（${r.km!=="" && r.km!=null ? fmtKm(r.km)+"km" : "—"}${r.time ? "・"+r.time : ""}${r.gps ? "・GPS" : ""}）`;
+    case "comment": return `${d} の管理者コメント「${String(r.text||"").slice(0,20)}${String(r.text||"").length>20?"…":""}」`;
+    case "plans":   return `プラン全体（${Object.keys(r).length}日分）`;
+    case "advice":  return `アドバイス「${(ADVICE_SECTIONS.find(s=>s.id===t.sec)||{}).title||""}」`;
+    case "all":     return t.before==="restore" ? "すべてのデータ（ゴミ箱から復旧する前の状態）" : "すべてのデータ（消去する前の状態）";
+  }
+  return "データ";
+}
+function restoreTrash(id){
+  const t = S.trash[id]; if(!t) return;
+  const v = clone(t.data);
+  switch(t.kind){
+    case "plan": ensureRegistered(); if(S.plan[t.date]) toTrash("plan", t.date, S.plan[t.date]); S.plan[t.date] = v; break;
+    case "log": {
+      const cur = S.logs[t.date];
+      if(!cur){ S.logs[t.date] = migrateLog(v); break; }
+      const ids = new Set(runsOf(cur).map(r=>r.id));
+      cur.runs = [...runsOf(cur), ...runsOf(v).filter(r=>!ids.has(r.id))].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+      ["status","rpe","cond","sleep","weight","meal","memo"].forEach(k=>{ if(!cur[k] && v[k]) cur[k] = v[k]; });
+      break;
+    }
+    case "run": {
+      const cur = S.logs[t.date] || {status:"", runs:[]}; migrateLog(cur);
+      if(!runsOf(cur).some(r=>r.id===v.id)) cur.runs.push(v);
+      cur.runs.sort((a,b)=>String(a.id).localeCompare(String(b.id)));   // 1回目・2回目の順に戻す
+      S.logs[t.date] = cur; break;
+    }
+    case "comment": if(S.comments[t.date]) toTrash("comment", t.date, S.comments[t.date]); S.comments[t.date] = v; break;
+    case "plans": toTrash("plans", null, S.plan); S.plan = v; S.registered = true; break;
+    case "advice": { const a = clone(advice()); a.sections = a.sections||{}; if(a.sections[t.sec]) toTrash("advice", null, a.sections[t.sec], {sec:t.sec}); a.sections[t.sec] = v; S.advice = a; break; }
+    case "all":   // 今の状態に予定や記録があれば、それもゴミ箱に残してから戻す
+      if(Object.keys(S.plan).length || Object.keys(S.logs).length || Object.keys(S.comments).length) toTrash("all", null, snapshotAll(), {before:"restore"});
+      Object.assign(S, v); break;
+  }
+  delete S.trash[id];
+  save();
+}
 
 /* ---------- 既読（この端末で見たかどうか） ---------- */
 const Seen = {
@@ -239,7 +301,7 @@ function syncLabel(){
   return {
     off:"この端末に自動保存", idle:"同期の準備中…",
     ok:"共有済み " + (t ? t.getHours()+":"+pad(t.getMinutes()) : ""),
-    pending:"未送信あり（自動で送信します）", offline:"オフライン（電波が戻ったら送信）",
+    pending:"未送信あり", offline:"オフライン",
     error:"同期できません（設定を確認）"
   }[Sync.state] || "";
 }
@@ -614,7 +676,8 @@ function viewLog(){
         ${cm?`<div class="cm-box"><span class="label">管理者より${Seen.isNew("comments/"+d)?` <span class="new-dot">NEW</span>`:""}</span><p>${nl2br(cm.text)}</p></div>`:""}
       </button>`;}).join("")
       : `<div class="empty">まだ記録がありません。<br>「今日」タブから練習を記録しましょう。</div>`}
-  </section>`;
+  </section>
+  <button class="btn ghost" data-act="trash">ゴミ箱（削除した記録の復旧）${Object.keys(S.trash).length ? `・${Object.keys(S.trash).length}件` : ""}</button>`;
 }
 
 function viewAdvice(){
@@ -717,6 +780,12 @@ function viewSetup(){
   </section>
 
   <section class="panel">
+    <div class="spread"><h3>ゴミ箱</h3><span class="small muted">${Object.keys(S.trash).length}件</span></div>
+    <p class="small muted">削除した予定・記録・コメントなどは${TRASH_DAYS}日間残ります。復旧するか、完全に削除するかを選べます。</p>
+    <button class="btn" data-act="trash">ゴミ箱を開く</button>
+  </section>
+
+  <section class="panel">
     <h3>リセット</h3>
     <div class="row"><button class="btn" data-act="rebuild">プランを作り直す</button><button class="btn danger" data-act="wipe">すべてのデータを消去</button></div>
     <div id="confirmBox"></div>
@@ -741,6 +810,8 @@ function openDay(date, isNew){
   const p = Object.assign({t:"jog",km:"",title:"",detail:""}, plan[date]||{});
   const l = Object.assign({status:"",rpe:"",cond:"",sleep:"",weight:"",meal:"",memo:"",runs:[]}, JSON.parse(JSON.stringify(S.logs[date]||{})));
   let runs = l.runs.length ? l.runs : [{id:uid(), km:"", time:""}];
+  const origRuns = clone(l.runs), origLog = clone(S.logs[date]);
+  let delArmed = false;
   const cm = S.comments[date], admin = Admin.on();
   const isFuture = date > todayStr();
   const startPane = isFuture && !S.logs[date] ? "pl" : "rec";
@@ -782,6 +853,7 @@ function openDay(date, isNew){
         <span class="small muted">走った記録があれば、選ばなくても予定の距離と比べて自動で判定します</span>
       </div>
       <div class="stack" id="runsBox"></div>
+      <p class="small muted" id="runDelNote" hidden>削除した回は「保存」を押すとゴミ箱に移ります（30日間は復旧できます）。保存しなければ元のままです。</p>
       <button type="button" class="btn" data-act="addrun">＋ もう1回分を追加（同じ日に2回走ったとき）</button>
       <div class="grid3">
         <label class="field"><span>きつさ(1-10)</span><select class="inp" id="rRpe"><option value="">—</option>${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option ${String(l.rpe)===String(n)?"selected":""}>${n}</option>`).join("")}</select></label>
@@ -793,7 +865,7 @@ function openDay(date, isNew){
       <label class="field"><span>メモ（脚の状態・気づき）</span><textarea class="inp" id="rMemo">${esc(l.memo)}</textarea></label>
       ${admin ? `<label class="field cm-edit"><span>管理者コメント（ランナーに表示されます）</span><textarea class="inp" id="rComment" placeholder="例：後半上げられていて良い内容。明日はしっかり休もう">${esc(cm?.text||"")}</textarea></label>`
         : cm ? `<div class="cm-box"><span class="label">管理者より</span><p>${nl2br(cm.text)}</p></div>` : ""}
-      ${S.logs[date]?`<button type="button" class="btn danger" data-act="dellog">この日の記録を削除</button>`:""}
+      ${S.logs[date]?`<button type="button" class="btn danger" data-act="dellog">${runsOf(S.logs[date]).length>1 ? `この日の記録をまるごと削除（${runsOf(S.logs[date]).length}回分すべて）` : "この日の記録をまるごと削除"}</button>`:""}
     </div>
     <button class="btn primary wide" type="submit">保存</button>
   </form>`;
@@ -808,7 +880,7 @@ function openDay(date, isNew){
     const km = box.querySelector(".r-km").value; return Object.assign({}, r, {km: km==="" ? "" : Number(km), time: normTime(box.querySelector(".r-time").value)}); }); };
   const drawRuns = () => {
     $("#runsBox").innerHTML = runs.map((r,i)=>`<div class="run-box" data-run="${r.id}">
-      <div class="spread"><b class="small">${runs.length>1 ? (i+1)+"回目" : "走った記録"}${r.gps?` <span class="chip" style="--c:var(--accent)">GPS</span>`:""}</b>${runs.length>1?`<button type="button" class="btn ghost danger" data-delrun="${r.id}">この回を削除</button>`:""}</div>
+      <div class="spread"><b class="small">${runs.length>1 ? (i+1)+"回目" : "走った記録"}${r.gps?` <span class="chip" style="--c:var(--accent)">GPS</span>`:""}</b>${runs.length>1?`<button type="button" class="btn ghost danger" data-delrun="${r.id}">${i+1}回目だけ削除</button>`:""}</div>
       <div class="grid2">
         <label class="field"><span>距離（km）</span><input class="inp r-km" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(r.km)}"></label>
         <label class="field"><span>タイム（例 5830 → 58:30）</span><input class="inp num r-time t-in" inputmode="numeric" placeholder="58:30" value="${esc(r.time)}"></label>
@@ -847,11 +919,14 @@ function openDay(date, isNew){
     if(sb){ st = st===sb.dataset.st ? "" : sb.dataset.st; f.querySelectorAll("[data-st]").forEach(b=>b.setAttribute("aria-pressed", b.dataset.st===st));
       if(st==="done" && runs.length===1 && !f.querySelector(".r-km").value && p.km && p.t!=="rest"){ f.querySelector(".r-km").value = p.km; paceUpd(); } }
     const dr = e.target.closest("[data-delrun]");
-    if(dr){ readRuns(); runs = runs.filter(r=>r.id!==dr.dataset.delrun); drawRuns(); }
-    const act = e.target.closest("[data-act]")?.dataset.act;
+    if(dr){ readRuns(); runs = runs.filter(r=>r.id!==dr.dataset.delrun); drawRuns(); $("#runDelNote").hidden = false; }
+    const ab = e.target.closest("[data-act]"), act = ab?.dataset.act;
     if(act==="addrun"){ readRuns(); runs.push({id:uid(), km:"", time:""}); drawRuns(); }
-    if(act==="delplan"){ ensureRegistered(); delete S.plan[date]; save(); close(); toast("予定を削除しました"); }
-    if(act==="dellog"){ delete S.logs[date]; save(); close(); toast("記録を削除しました"); }
+    if(act==="delplan"){ ensureRegistered(); const id = toTrash("plan", date, S.plan[date]); delete S.plan[date]; save(); close(); toastUndo("予定をゴミ箱に移しました", id); }
+    if(act==="dellog"){
+      if(!delArmed){ delArmed = true; const t = ab.textContent; ab.textContent = "もう一度押すと削除します（ゴミ箱に移動）"; setTimeout(()=>{ delArmed = false; if(ab.isConnected) ab.textContent = t; }, 4000); return; }
+      const id = toTrash("log", date, S.logs[date]); delete S.logs[date]; save(); close(); toastUndo("この日の記録をゴミ箱に移しました", id);
+    }
     if(act==="swap"){
       const d2 = $("#swapDate").value; if(!d2 || d2===date) return;
       ensureRegistered(); const a = S.plan[date], b = S.plan[d2];
@@ -882,13 +957,17 @@ function openDay(date, isNew){
     const keepRuns = runs.filter(r=>(r.km!=="" && r.km!=null) || r.time || (r.laps && r.laps.length));
     const nl = {status:st, rpe:$("#rRpe").value, cond:$("#rCond").value, sleep:$("#rSleep").value, weight:$("#rWeight").value,
       meal:$("#rMeal").value.trim(), memo:$("#rMemo").value.trim(), runs:keepRuns};
-    if(keepRuns.length || ["status","rpe","cond","sleep","weight","meal","memo"].some(k=>nl[k])) S.logs[d] = nl; else delete S.logs[d];
+    const keepIds = new Set(keepRuns.map(r=>r.id)), trashed = [];
+    if(d===date) origRuns.filter(r=>!keepIds.has(r.id) && ((r.km!=="" && r.km!=null) || r.time || (r.laps && r.laps.length))).forEach(r=>trashed.push(toTrash("run", d, r)));
+    if(keepRuns.length || ["status","rpe","cond","sleep","weight","meal","memo"].some(k=>nl[k])) S.logs[d] = nl;
+    else { if(d===date && origLog && !trashed.length) trashed.push(toTrash("log", d, origLog)); delete S.logs[d]; }
     if(admin){
       const c = $("#rComment").value.trim();
       if(c && c!==(cm?.text||"")) S.comments[d] = {text:c, at:Date.now()};
-      else if(!c && cm) delete S.comments[d];
+      else if(!c && cm){ trashed.push(toTrash("comment", d, cm)); delete S.comments[d]; }
     }
-    save(); close(); toast("保存しました");
+    save(); close();
+    if(trashed.length) toastUndo(`保存しました（${trashed.length}件をゴミ箱に移しました）`, trashed); else toast("保存しました");
   });
 }
 function lapTable(laps){
@@ -918,10 +997,71 @@ function editChecklist(){
 
 /* ---------- misc actions ---------- */
 let toastT;
-function toast(msg){
+function toast(msg, action){
   document.querySelectorAll(".toast").forEach(t=>t.remove());
-  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; t.setAttribute("role","status");
-  document.body.appendChild(t); clearTimeout(toastT); toastT = setTimeout(()=>t.remove(), 2400);
+  const t = document.createElement("div"); t.className = "toast"; t.setAttribute("role","status");
+  const s = document.createElement("span"); s.textContent = msg; t.appendChild(s);
+  if(action){ const b = document.createElement("button"); b.type = "button"; b.textContent = action.label; b.onclick = ()=>{ t.remove(); action.fn(); }; t.appendChild(b); }
+  document.body.appendChild(t); clearTimeout(toastT); toastT = setTimeout(()=>t.remove(), action ? 7000 : 2400);
+}
+// 削除の直後に「元に戻す」を出す
+function toastUndo(msg, ids){
+  ids = [].concat(ids);
+  toast(msg, {label:"元に戻す", fn:()=>{ ids.forEach(restoreTrash); render(); toast("元に戻しました"); }});
+}
+
+/* ---------- ゴミ箱の画面 ---------- */
+function openTrash(){
+  if(purgeTrash()) save();
+  const bg = document.createElement("div");
+  bg.className = "sheet-bg";
+  const draw = () => {
+    const items = Object.entries(S.trash).sort((a,b)=>b[1].at-a[1].at);
+    bg.innerHTML = `<div class="sheet" role="dialog" aria-label="ゴミ箱">
+      <div class="sheet-grip"></div>
+      <div class="spread"><h2>ゴミ箱</h2><button type="button" class="btn ghost" data-close>閉じる</button></div>
+      <p class="small muted">削除したデータは${TRASH_DAYS}日間ここに残り、復旧できます。${Sync.cfg ? "共有中は、ランナーと管理者のどちらが削除したものも入ります。" : ""}</p>
+      ${items.length ? `
+        <div class="trash-bar">
+          <label class="check" style="border:0;padding:0"><input type="checkbox" id="trAll"><span class="small">すべて選択</span></label>
+          <div class="row"><button type="button" class="btn primary" data-tr="restoreSel" disabled>選択を復旧する</button><button type="button" class="btn danger" data-tr="purgeSel" disabled>選択を完全に削除</button></div>
+        </div>
+        <div id="trConfirm"></div>
+        <div class="stack trash-list">${items.map(([id,t])=>{ const left = Math.max(0, TRASH_DAYS - Math.floor((Date.now()-t.at)/864e5)); const at = new Date(t.at);
+          return `<div class="trash-item">
+            <label class="check" style="border:0;padding:0;align-items:flex-start"><input type="checkbox" data-trsel="${id}"><span><b>${esc(trashLabel(t))}</b><br><span class="small muted">${at.getMonth()+1}/${at.getDate()} ${at.getHours()}:${pad(at.getMinutes())} に削除・あと${left}日で自動で消えます</span></span></label>
+            <div class="row"><button type="button" class="btn" data-tr="restore" data-id="${id}">復旧する</button><button type="button" class="btn ghost danger" data-tr="purge" data-id="${id}">完全に削除</button></div>
+          </div>`; }).join("")}</div>`
+      : `<div class="empty">ゴミ箱は空です。</div>`}
+    </div>`;
+  };
+  const selected = () => [...bg.querySelectorAll("[data-trsel]:checked")].map(i=>i.dataset.trsel);
+  const syncBar = () => { const n = selected().length; bg.querySelectorAll("[data-tr$='Sel']").forEach(b=>{ b.disabled = !n; b.textContent = (b.dataset.tr==="restoreSel" ? "選択を復旧する" : "選択を完全に削除") + (n ? `（${n}件）` : ""); }); };
+  const confirmPurge = (ids) => {
+    const box = bg.querySelector("#trConfirm");
+    box.innerHTML = `<div class="note" style="display:grid;gap:8px"><span>${ids.length}件を完全に削除します。完全に削除すると、もう復旧できません。</span><div class="row"><button type="button" class="btn danger" data-tr="purgeYes">完全に削除する</button><button type="button" class="btn" data-tr="purgeNo">やめる</button></div></div>`;
+    box.dataset.ids = ids.join(",");
+    box.scrollIntoView({block:"nearest"});
+  };
+  draw();
+  document.body.appendChild(bg);
+  document.body.style.overflow = "hidden";
+  const close = () => { bg.remove(); document.body.style.overflow = ""; render(); };
+  bg.addEventListener("change", e=>{
+    if(e.target.id==="trAll") bg.querySelectorAll("[data-trsel]").forEach(i=>i.checked = e.target.checked);
+    syncBar();
+  });
+  bg.addEventListener("click", e=>{
+    if(e.target===bg || e.target.closest("[data-close]")) return close();
+    const b = e.target.closest("[data-tr]"); if(!b) return;
+    const a = b.dataset.tr;
+    if(a==="restore"){ restoreTrash(b.dataset.id); draw(); toast("復旧しました"); }
+    if(a==="restoreSel"){ const ids = selected(); ids.forEach(restoreTrash); draw(); toast(`${ids.length}件を復旧しました`); }
+    if(a==="purge") confirmPurge([b.dataset.id]);
+    if(a==="purgeSel") confirmPurge(selected());
+    if(a==="purgeNo") bg.querySelector("#trConfirm").innerHTML = "";
+    if(a==="purgeYes"){ const ids = bg.querySelector("#trConfirm").dataset.ids.split(","); ids.forEach(id=>delete S.trash[id]); save(); draw(); toast(`${ids.length}件を完全に削除しました`); }
+  });
 }
 function exportText(){ return JSON.stringify(S); }
 function importData(txt){
@@ -956,9 +1096,13 @@ document.addEventListener("click", async e=>{
   if(act==="advcancel") render();
   if(act==="advsave"){
     const a = JSON.parse(JSON.stringify(advice())); a.sections = a.sections||{};
-    a.sections[ab.dataset.id] = document.getElementById("advIn").value.trim();
-    S.advice = a; save(); render(); toast("アドバイスを保存しました");
+    const sec = ab.dataset.id, old = a.sections[sec], nv = document.getElementById("advIn").value.trim();
+    a.sections[sec] = nv;
+    const tid = old && !nv ? toTrash("advice", null, old, {sec}) : null;
+    S.advice = a; save(); render();
+    if(tid) toastUndo("アドバイスを消しました（ゴミ箱に移動）", tid); else toast("アドバイスを保存しました");
   }
+  if(act==="trash") openTrash();
   if(act==="checkedit") editChecklist();
   if(act==="clsave"){
     const old = checklist(), lines = document.getElementById("clIn").value.split("\n").map(s=>s.trim()).filter(Boolean);
@@ -987,7 +1131,7 @@ document.addEventListener("click", async e=>{
     catch(err){ ta.value = txt; ta.select(); toast("テキストを選択しました。コピーしてください"); }
   }
   if(act==="importText"){ const v = document.getElementById("importText").value.trim(); if(v) importData(v); }
-  if(act==="rebuild") confirmBox("現在の予定を消して、レース日から逆算したおすすめプランに置き換えます（実績の記録は残ります）。", "作り直す", ()=>{ S.registered=false; S.plan={}; ensureRegistered(); save(); render(); toast("プランを作り直しました"); });
+  if(act==="rebuild") confirmBox("現在の予定を、レース日から逆算したおすすめプランに置き換えます（実績の記録は残ります。今の予定はゴミ箱に移ります）。", "作り直す", ()=>{ const id = S.registered ? toTrash("plans", null, S.plan) : null; S.registered=false; S.plan={}; ensureRegistered(); save(); render(); id ? toastUndo("プランを作り直しました", id) : toast("プランを作り直しました"); });
   if(act==="share"){
     const url = document.getElementById("shUrl").value.trim(), key = document.getElementById("shKey").value.trim();
     if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(url) || !key){ toast("URL（https://script.google.com/…）と合言葉を入力してください"); return; }
@@ -1003,7 +1147,11 @@ document.addEventListener("click", async e=>{
     try{ await navigator.clipboard.writeText(inp.value); toast("コピーしました"); }catch(err){ inp.select(); toast("選択しました。コピーしてください"); }
   }
   if(act==="unshare") confirmBox("この端末だけ共有をやめます。スプレッドシートのデータと、相手の端末はそのまま残ります。", "解除する", ()=>{ Sync.cfg = null; Sync.saveCfg(); Sync.set("off"); render(); toast("共有を解除しました"); });
-  if(act==="wipe") confirmBox(Sync.cfg ? "予定・記録・コメント・アドバイス・設定をすべて消去します。共有中なので、相手の端末とスプレッドシートからも消えます。元に戻せません。" : "予定・記録・設定をすべて消去します。元に戻せません。", "消去する", ()=>{ const keepAdmin = S.admin; S = freshState(); if(keepAdmin) S.admin = keepAdmin; save(); render(); toast("消去しました"); });
+  if(act==="wipe") confirmBox(Sync.cfg ? `予定・記録・コメント・アドバイス・設定をすべて消去します。共有中なので、相手の端末とスプレッドシートからも消えます。消去前の状態はゴミ箱に${TRASH_DAYS}日間残り、復旧できます。` : `予定・記録・設定をすべて消去します。消去前の状態はゴミ箱に${TRASH_DAYS}日間残り、復旧できます。`, "消去する", ()=>{
+    const snap = snapshotAll(), keep = {admin:S.admin, trash:S.trash, meta:S.meta};
+    S = freshState(); Object.keys(keep).forEach(k=>{ if(keep[k]!==undefined) S[k] = keep[k]; });
+    const id = toTrash("all", null, snap); save(); render(); toastUndo("すべて消去しました（ゴミ箱から復旧できます）", id);
+  });
 });
 document.addEventListener("change", e=>{
   if(e.target.matches("[data-check]")){
@@ -1028,6 +1176,7 @@ document.addEventListener("keydown", e=>{ if(e.key==="Escape") document.querySel
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && !document.querySelector(".sheet-bg") && !editingInline()) render(); });
 
 load();
+if(purgeTrash()) save();   // 30日を過ぎたものを片づける
 Sync.loadCfg();
 if(Sync.cfg){
   Sync.run();

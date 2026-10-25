@@ -207,6 +207,8 @@ textarea.inp{min-height:72px;resize:vertical}
 @media (prefers-reduced-motion:no-preference){ #jDot{animation:pulse 2.4s ease-in-out infinite} @keyframes pulse{50%{r:9}} }
 
 .top-right{display:flex;align-items:center;gap:8px;min-width:0}
+.brand{white-space:nowrap}
+.save-state{text-align:right}
 .count-chip{font-size:.78rem;font-weight:700;background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:2px 10px;white-space:nowrap}
 .count-chip b{font-family:var(--f-num);font-size:1rem;margin:0 2px}
 .admin-chip{font-family:var(--f-body);font-size:.68rem;font-weight:700;background:var(--warn-soft);color:var(--warn);border-radius:6px;padding:1px 6px;vertical-align:3px}
@@ -239,6 +241,12 @@ details.phase .tip-list{margin-top:6px}
 .day-warn{font-size:.75rem;color:var(--warn);font-weight:700}
 .log-item{text-align:left;cursor:pointer;gap:6px}
 .move-box summary{cursor:pointer}
+.toast{display:flex;align-items:center;gap:12px;max-width:calc(100% - 32px)}
+.toast button{appearance:none;border:0;background:transparent;color:var(--accent-soft);font-weight:700;text-decoration:underline;cursor:pointer;font-size:.85rem;padding:4px 0;white-space:nowrap}
+.trash-bar{display:grid;gap:8px;position:sticky;top:-16px;background:var(--bg);padding-block:8px;z-index:1;border-bottom:1px solid var(--line)}
+.trash-bar .btn:disabled{opacity:.45}
+.trash-item{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:8px}
+.trash-item b{overflow-wrap:anywhere}
 
 /* 実践モード：走りながら見る画面。屋外で読みやすく電池にやさしい暗い画面に固定 */
 .run{
